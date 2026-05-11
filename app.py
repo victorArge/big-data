@@ -318,6 +318,38 @@ app_ui = ui.page_sidebar(
                 ui.output_image("grafico_prediccion"),
             ),
         ),
+        ui.nav_panel("Modelos ML",
+            ui.layout_columns(
+                ui.card(
+                    ui.card_header("Regresion Lineal - Configuracion"),
+                    ui.input_selectize("ml_ingenio", "Ingenio", choices=ingenios, selected=ingenios[0]),
+                    ui.input_selectize("ml_variable_x", "Variable X (predictor)",
+                                       choices=["cana_molida_neta", "superficie_cosechada", "cana_molida_bruta"],
+                                       selected="cana_molida_neta"),
+                    ui.input_selectize("ml_zafra", "Zafra", choices=zafras, selected=zafras[0]),
+                    ui.input_numeric("ml_train_size", "Train size (%):", value=80, min=50, max=95),
+                    ui.input_action_button("btn_entrenar", "Entrenar Modelo", class_="btn-accent"),
+                ),
+                ui.card(
+                    ui.card_header("Resultados del Modelo"),
+                    ui.output_table("ml_resultados"),
+                ),
+            ),
+            ui.layout_columns(
+                ui.card(
+                    ui.card_header("Regresion Lineal - Grafico"),
+                    ui.output_image("grafico_regresion"),
+                ),
+                ui.card(
+                    ui.card_header("Serie de Tiempo - SARIMAX"),
+                    ui.output_image("grafico_sarimax"),
+                ),
+            ),
+            ui.card(
+                ui.card_header("Prediccion Global - Todos los Ingenios"),
+                ui.output_table("ml_prediccion_global"),
+            ),
+        ),
     ),
     title="INFOCANA - Dashboard Azucarero",
 )
@@ -603,5 +635,211 @@ def server(input, output, session):
             fig = go.Figure()
             fig.add_annotation(text=f"Error: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
             return plot_to_image(fig)
+
+    @output
+    @render.table
+    def ml_resultados():
+        try:
+            from sklearn.linear_model import LinearRegression
+            from sklearn.model_selection import train_test_split
+            from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+
+            ing = input.ml_ingenio()
+            x_col = input.ml_variable_x()
+            zafra_sel = input.ml_zafra()
+            train_size = input.ml_train_size() / 100
+
+            datos = df_combined[
+                (df_combined['ingenio_normalizado'] == ing) &
+                (df_combined['zafra'] == zafra_sel)
+            ].copy()
+
+            datos = datos[['azucar_producida_total', x_col]].dropna()
+
+            if len(datos) < 10:
+                return pd.DataFrame({"Error": ["Datos insuficientes para entrenar"]})
+
+            X = datos[[x_col]].values
+            y = datos['azucar_producida_total'].values
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_size, random_state=42)
+
+            model = LinearRegression()
+            model.fit(X_train, y_train)
+
+            y_pred = model.predict(X_test)
+
+            mse = mean_squared_error(y_test, y_pred)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+
+            pendiente = model.coef_[0]
+            intercepto = model.intercept_
+            prediccion_ejemplo = model.predict([[datos[x_col].mean()]])[0]
+
+            return pd.DataFrame({
+                "Metrica": ["R2 Score", "RMSE", "MAE", "Pendiente (coef)", "Intercepto", "R2 Entrenamiento", "Prediccion (ejemplo)"],
+                "Valor": [
+                    f"{r2:.4f}",
+                    f"{rmse:,.2f} ton",
+                    f"{mae:,.2f} ton",
+                    f"{pendiente:.4f}",
+                    f"{intercepto:,.2f}",
+                    f"{model.score(X_train, y_train):.4f}",
+                    f"{prediccion_ejemplo:,.2f} ton"
+                ]
+            })
+        except Exception as e:
+            return pd.DataFrame({"Error": [str(e)]})
+
+    @output
+    @render.image
+    def grafico_regresion():
+        try:
+            from sklearn.linear_model import LinearRegression
+            from sklearn.model_selection import train_test_split
+
+            ing = input.ml_ingenio()
+            x_col = input.ml_variable_x()
+            zafra_sel = input.ml_zafra()
+            train_size = input.ml_train_size() / 100
+
+            datos = df_combined[
+                (df_combined['ingenio_normalizado'] == ing) &
+                (df_combined['zafra'] == zafra_sel)
+            ].copy()
+
+            datos = datos[['azucar_producida_total', x_col]].dropna()
+
+            if len(datos) < 10:
+                fig = go.Figure()
+                fig.add_annotation(text="Datos insuficientes", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+                return plot_to_image(fig)
+
+            X = datos[[x_col]].values
+            y = datos['azucar_producida_total'].values
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_size, random_state=42)
+
+            model = LinearRegression()
+            model.fit(X_train, y_train)
+
+            X_range = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+            y_range = model.predict(X_range)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=X_train.flatten(), y=y_train, mode='markers', name='Entrenamiento',
+                                     marker=dict(color='#1d3557', size=8)))
+            fig.add_trace(go.Scatter(x=X_test.flatten(), y=y_test, mode='markers', name='Prueba',
+                                     marker=dict(color='#e63946', size=8)))
+            fig.add_trace(go.Scatter(x=X_range.flatten(), y=y_range, mode='lines', name='Regresion',
+                                     line=dict(color='#457b9d', width=3)))
+
+            fig.update_layout(
+                title=f"Regresion Lineal: {ing.title()}",
+                xaxis_title=x_col.replace('_', ' ').title(),
+                yaxis_title="Azucar Producida (ton)",
+                plot_bgcolor='rgba(241,250,238,0.9)',
+                paper_bgcolor='white',
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+            )
+            return plot_to_image(fig)
+        except Exception as e:
+            fig = go.Figure()
+            fig.add_annotation(text=f"Error: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+            return plot_to_image(fig)
+
+    @output
+    @render.image
+    def grafico_sarimax():
+        try:
+            from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+            zafra_sel = input.ml_zafra()
+            meses = int(input.ml_train_size()) // 10
+
+            datos_global = df_combined[df_combined['zafra'] == zafra_sel].copy()
+            datos_global = datos_global.sort_values('semana_num')
+
+            serie_global = datos_global.groupby('semana_num')['azucar_producida_total'].sum().reset_index()
+            serie_global.columns = ['periodo', 'produccion']
+            serie_global = serie_global.set_index('periodo')['produccion']
+
+            if len(serie_global) < 12:
+                fig = go.Figure()
+                fig.add_annotation(text="Datos insuficientes para SARIMAX", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+                return plot_to_image(fig)
+
+            try:
+                model = SARIMAX(serie_global, order=(1, 1, 1), seasonal_order=(1, 1, 1, 4), enforce_stationarity=False, enforce_invertibility=False)
+                fitted = model.fit(disp=False)
+                forecast = fitted.forecast(steps=meses)
+            except:
+                from statsmodels.tsa.holtwinters import ExponentialSmoothing
+                model_h = ExponentialSmoothing(serie_global.values, trend='add', seasonal='add', seasonal_periods=4)
+                fitted_h = model_h.fit()
+                forecast = fitted_h.forecast(meses)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=list(range(len(serie_global))), y=serie_global.values, mode='lines+markers', name='Historico',
+                                     line=dict(color='#1d3557', width=2)))
+            fig.add_trace(go.Scatter(x=list(range(len(serie_global), len(serie_global) + len(forecast))), y=forecast, mode='lines+markers', name='Pronostico SARIMAX',
+                                     line=dict(color='#e63946', width=2, dash='dash')))
+            fig.add_vline(x=len(serie_global)-1, line_dash="dot", line_color="#457b9d", annotation_text="Zafra Actual")
+
+            fig.update_layout(
+                title=f"Serie de Tiempo - Zafra {zafra_sel}",
+                xaxis_title="Semana",
+                yaxis_title="Produccion Total (ton)",
+                plot_bgcolor='rgba(241,250,238,0.9)',
+                paper_bgcolor='white',
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+            )
+            return plot_to_image(fig)
+        except Exception as e:
+            fig = go.Figure()
+            fig.add_annotation(text=f"Error: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+            return plot_to_image(fig)
+
+    @output
+    @render.table
+    def ml_prediccion_global():
+        try:
+            from sklearn.linear_model import LinearRegression
+
+            zafra_sel = input.ml_zafra()
+
+            datos_global = df_combined[df_combined['zafra'] == zafra_sel].copy()
+
+            resultados = []
+            for ing in datos_global['ingenio_normalizado'].unique():
+                datos_ing = datos_global[datos_global['ingenio_normalizado'] == ing]
+
+                X = datos_ing[['cana_molida_neta']].dropna()
+                y = datos_ing.loc[X.index, 'azucar_producida_total']
+
+                if len(X) >= 10:
+                    model = LinearRegression()
+                    model.fit(X, y)
+
+                    prediccion = model.predict(X.mean().values.reshape(1, -1))[0]
+                    r2 = model.score(X, y)
+
+                    resultados.append({
+                        'Ingenio': ing.title(),
+                        'R2': f"{r2:.3f}",
+                        'Prediccion Prox Zafra (ton)': f"{prediccion:,.0f}",
+                        'Cana Promedio (ton)': f"{X.mean().values[0]:,.0f}"
+                    })
+
+            if not resultados:
+                return pd.DataFrame({"Mensaje": ["Sin datos para predecir"]})
+
+            df_result = pd.DataFrame(resultados)
+            df_result = df_result.sort_values('Prediccion Prox Zafra (ton)', ascending=False).head(20)
+            return df_result
+        except Exception as e:
+            return pd.DataFrame({"Error": [str(e)]})
 
 app = App(app_ui, server)
