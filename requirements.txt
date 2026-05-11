@@ -1,0 +1,8 @@
+shiny
+pandas
+numpy
+matplotlib
+scikit-learn
+statsmodels
+plotly
+kaleido
