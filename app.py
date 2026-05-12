@@ -135,12 +135,26 @@ def load_all_data():
         combined['no_s_zafra'] if 'no_s_zafra' in combined.columns else combined.get('semana', 1),
         errors='coerce'
     ).fillna(1)
+    combined['azucar_producida_total'] = combined['azucar_producida_total'].fillna(combined['azucar_total'])
     return combined
 
 df_combined = load_all_data()
 
 ingenios = sorted(df_combined['ingenio_normalizado'].unique(), key=str.lower)
 zafras = sorted(df_combined['zafra'].unique(), reverse=True)
+
+default_ingenio = ingenios[0]
+default_zafra = zafras[0]
+
+for ing in ingenios:
+    for zafra in zafras:
+        if len(df_combined[(df_combined['ingenio_normalizado'] == ing) & (df_combined['zafra'] == zafra)]) > 0:
+            default_ingenio = ing
+            default_zafra = zafra
+            break
+    else:
+        continue
+    break
 
 VARIABLES = {
     "Producci\u00f3n Total de Az\u00facar": "azucar_producida_total",
@@ -207,6 +221,9 @@ custom_theme = """
   .value-box { background: linear-gradient(135deg, var(--dark-bg) 0%, var(--secondary) 100%); color: white; border-radius: var(--border-radius); padding: 20px; text-align: center; }
   .value-box .value { font-size: 2rem; font-weight: 700; }
   .value-box .label { font-size: 0.8rem; opacity: 0.85; text-transform: uppercase; }
+  .card img { max-width: 100%; height: auto; max-height: 450px; object-fit: contain; display: block; margin: 0 auto; }
+  .shiny-image { display: flex; justify-content: center; align-items: center; }
+  .shiny-image > img { max-width: 100%; height: auto; max-height: 450px; object-fit: contain; }
 </style>
 """
 
@@ -217,8 +234,8 @@ app_ui = ui.page_sidebar(
         ui.hr(style="border-color: rgba(255,255,255,0.2);"),
         ui.div(
             ui.h4("Filtros", style="color: white; font-size: 1rem; margin-bottom: 15px;"),
-            ui.input_selectize("ingenio", "Ingenio", choices=ingenios, selected=ingenios[0]),
-            ui.input_selectize("zafra", "Zafra", choices=zafras, selected=zafras[0]),
+            ui.input_selectize("ingenio", "Ingenio", choices=ingenios, selected=default_ingenio),
+            ui.input_selectize("zafra", "Zafra", choices=zafras, selected=default_zafra),
             ui.input_selectize("variable", "Variable", choices=list(VARIABLES.keys()), selected=list(VARIABLES.keys())[0]),
         ),
         ui.hr(style="border-color: rgba(255,255,255,0.2);"),
@@ -301,28 +318,32 @@ app_ui = ui.page_sidebar(
             ),
         ),
         ui.nav_panel("Predicciones",
-            ui.layout_columns(
-                ui.card(
-                    ui.card_header("Configuracion de Prediccion"),
-                    ui.input_selectize("pred_ingenio", "Ingenio para Prediccion", choices=ingenios, selected=ingenios[0]),
-                    ui.input_selectize("pred_variable", "Variable a Predecir", choices=list(VARIABLES.keys()), selected=list(VARIABLES.keys())[0]),
-                    ui.input_numeric("pred_meses", "Meses a predecir:", value=3, min=1, max=12),
-                ),
-                ui.card(
-                    ui.card_header("Resultados de Prediccion"),
-                    ui.output_table("tabla_prediccion"),
-                ),
-            ),
             ui.card(
-                ui.card_header("Grafico de Prediccion"),
-                ui.output_image("grafico_prediccion"),
+                ui.card_header("Panel de Prediccion"),
+                ui.layout_columns(
+                    ui.div(
+                        ui.h5("Configuracion"),
+                        ui.input_selectize("pred_ingenio", "Ingenio", choices=ingenios, selected=default_ingenio),
+                        ui.input_selectize("pred_variable", "Variable", choices=list(VARIABLES.keys()), selected=list(VARIABLES.keys())[0]),
+                        ui.input_slider("pred_meses", "Meses:", min=1, max=24, value=3, step=1),
+                    ),
+                    ui.div(
+                        ui.h5("Grafico"),
+                        ui.output_image("grafico_prediccion"),
+                    ),
+                    ui.div(
+                        ui.h5("Resultados"),
+                        ui.output_table("tabla_prediccion"),
+                    ),
+                    col_widths=[2, 7, 3],
+                ),
             ),
         ),
         ui.nav_panel("Modelos ML",
             ui.layout_columns(
                 ui.card(
                     ui.card_header("Regresion Lineal - Configuracion"),
-                    ui.input_selectize("ml_ingenio", "Ingenio", choices=ingenios, selected=ingenios[0]),
+                    ui.input_selectize("ml_ingenio", "Ingenio", choices=ingenios, selected=default_ingenio),
                     ui.input_selectize("ml_variable_x", "Variable X (predictor)",
                                        choices=["cana_molida_neta", "superficie_cosechada", "cana_molida_bruta"],
                                        selected="cana_molida_neta"),
@@ -461,7 +482,9 @@ def server(input, output, session):
             title_font_size=16,
             title_font=dict(color='#1d3557'),
             font=dict(color='#1d3557'),
-            margin=dict(l=40, r=40, t=60, b=40)
+            margin=dict(l=40, r=40, t=60, b=40),
+            height=400,
+            width=600
         )
         fig.update_traces(line=dict(color='#e63946', width=3), marker=dict(color='#457b9d', size=8))
         return plot_to_image(fig)
@@ -482,7 +505,9 @@ def server(input, output, session):
             title_font=dict(color='#1d3557'),
             font=dict(color='#1d3557'),
             margin=dict(l=40, r=40, t=60, b=80),
-            xaxis_tickangle=-45
+            xaxis_tickangle=-45,
+            height=400,
+            width=600
         )
         return plot_to_image(fig)
 
@@ -502,7 +527,9 @@ def server(input, output, session):
             title_font=dict(color='#1d3557'),
             font=dict(color='#1d3557'),
             margin=dict(l=40, r=40, t=60, b=80),
-            xaxis_tickangle=-45
+            xaxis_tickangle=-45,
+            height=400,
+            width=600
         )
         return plot_to_image(fig)
 
@@ -517,7 +544,9 @@ def server(input, output, session):
             title_font_size=16,
             title_font=dict(color='#1d3557'),
             font=dict(color='#1d3557'),
-            margin=dict(l=40, r=40, t=60, b=40)
+            margin=dict(l=40, r=40, t=60, b=40),
+            height=400,
+            width=600
         )
         return plot_to_image(fig)
 
@@ -532,7 +561,9 @@ def server(input, output, session):
             title_font_size=16,
             title_font=dict(color='#1d3557'),
             font=dict(color='#1d3557'),
-            margin=dict(l=40, r=40, t=60, b=40)
+            margin=dict(l=40, r=40, t=60, b=40),
+            height=400,
+            width=500
         )
         return plot_to_image(fig)
 
@@ -572,12 +603,12 @@ def server(input, output, session):
             datos = df_combined[df_combined['ingenio_normalizado'] == ing].copy()
             datos = datos.sort_values('semana_num')
 
-            if len(datos) < 10:
+            if len(datos) < 5:
                 return pd.DataFrame({"Mensaje": ["Datos insuficientes para predecir"]})
 
             serie = datos[var_col].dropna().values
-            if len(serie) < 10:
-                return pd.DataFrame({"Mensaje": ["Variable no tiene suficientes datos"]})
+            if len(serie) < 5:
+                return pd.DataFrame({"Mensaje": ["La serie no tiene suficientes datos"]})
 
             model = ExponentialSmoothing(serie, trend='add', seasonal='add', seasonal_periods=4)
             fitted = model.fit()
@@ -603,12 +634,17 @@ def server(input, output, session):
             datos = df_combined[df_combined['ingenio_normalizado'] == ing].copy()
             datos = datos.sort_values('semana_num')
 
-            if len(datos) < 10:
+            if len(datos) < 5:
                 fig = go.Figure()
                 fig.add_annotation(text="Datos insuficientes", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
                 return plot_to_image(fig)
 
             serie = datos[var_col].dropna().values
+            if len(serie) < 5:
+                fig = go.Figure()
+                fig.add_annotation(text="Serie con datos insuficientes", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+                return plot_to_image(fig)
+
             model = ExponentialSmoothing(serie, trend='add', seasonal='add', seasonal_periods=4)
             fitted = model.fit()
             forecast = fitted.forecast(meses)
@@ -656,8 +692,8 @@ def server(input, output, session):
 
             datos = datos[['azucar_producida_total', x_col]].dropna()
 
-            if len(datos) < 10:
-                return pd.DataFrame({"Error": ["Datos insuficientes para entrenar"]})
+            if len(datos) < 5:
+                return pd.DataFrame({"Error": ["Datos insuficientes"]})
 
             X = datos[[x_col]].values
             y = datos['azucar_producida_total'].values
@@ -742,12 +778,16 @@ def server(input, output, session):
                 yaxis_title="Azucar Producida (ton)",
                 plot_bgcolor='rgba(241,250,238,0.9)',
                 paper_bgcolor='white',
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                height=400,
+                width=500,
+                margin=dict(l=50, r=30, t=60, b=60)
             )
             return plot_to_image(fig)
         except Exception as e:
             fig = go.Figure()
             fig.add_annotation(text=f"Error: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+            fig.update_layout(height=400, width=500)
             return plot_to_image(fig)
 
     @output
@@ -769,6 +809,7 @@ def server(input, output, session):
             if len(serie_global) < 12:
                 fig = go.Figure()
                 fig.add_annotation(text="Datos insuficientes para SARIMAX", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+                fig.update_layout(height=400, width=500)
                 return plot_to_image(fig)
 
             try:
@@ -794,12 +835,16 @@ def server(input, output, session):
                 yaxis_title="Produccion Total (ton)",
                 plot_bgcolor='rgba(241,250,238,0.9)',
                 paper_bgcolor='white',
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                height=400,
+                width=500,
+                margin=dict(l=50, r=30, t=60, b=60)
             )
             return plot_to_image(fig)
         except Exception as e:
             fig = go.Figure()
             fig.add_annotation(text=f"Error: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+            fig.update_layout(height=400, width=500)
             return plot_to_image(fig)
 
     @output
