@@ -171,9 +171,9 @@ DARK_BG = "#1d3557"
 LIGHT_BG = "#f1faee"
 CARD_BG = "#ffffff"
 
-def plot_to_image(fig):
+def plot_to_image(fig, width=600, height=400):
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        img_bytes = fig.to_image(format="png", scale=2)
+        img_bytes = fig.to_image(format="png", scale=2, width=width, height=height)
         f.write(img_bytes)
         f.flush()
         return {"src": f.name}
@@ -221,9 +221,8 @@ custom_theme = """
   .value-box { background: linear-gradient(135deg, var(--dark-bg) 0%, var(--secondary) 100%); color: white; border-radius: var(--border-radius); padding: 20px; text-align: center; }
   .value-box .value { font-size: 2rem; font-weight: 700; }
   .value-box .label { font-size: 0.8rem; opacity: 0.85; text-transform: uppercase; }
-  .card img { max-width: 100%; height: auto; max-height: 450px; object-fit: contain; display: block; margin: 0 auto; }
-  .shiny-image { display: flex; justify-content: center; align-items: center; }
-  .shiny-image > img { max-width: 100%; height: auto; max-height: 450px; object-fit: contain; }
+  .card img, .shiny-image > img { max-width: 100%; max-height: 400px; width: auto; height: auto; object-fit: contain; display: block; margin: 0 auto; }
+  .shiny-image { display: flex; justify-content: center; align-items: center; flex-direction: column; }
 </style>
 """
 
